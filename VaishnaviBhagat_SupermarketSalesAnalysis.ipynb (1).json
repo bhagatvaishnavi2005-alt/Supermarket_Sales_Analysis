@@ -1,0 +1,407 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# Supermarket Sales Analysis with AI\n",
+    "### IBM SkillsBuild | AICTE Academic Internship 2026 \u2014 Data Analytics with AI\n",
+    "**Submitted by:** [Your Full Name]\n",
+    "**Institution:** [Your Institution Name]\n",
+    "\n",
+    "This notebook analyzes supermarket sales data to uncover business insights (branch/product performance, customer behavior, payment trends) and applies a machine learning model to predict customer satisfaction (Rating)."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 1. Import Libraries"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import pandas as pd\n",
+    "import numpy as np\n",
+    "import matplotlib.pyplot as plt\n",
+    "import seaborn as sns\n",
+    "from sklearn.model_selection import train_test_split\n",
+    "from sklearn.ensemble import RandomForestRegressor\n",
+    "from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score\n",
+    "from sklearn.preprocessing import LabelEncoder\n",
+    "\n",
+    "sns.set_style(\"whitegrid\")\n",
+    "plt.rcParams[\"figure.figsize\"] = (8, 5)\n",
+    "np.random.seed(42)\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 2. Load Dataset\n",
+    "\n",
+    "> **Note:** If you were given the official `supermarket_sales.csv` dataset in the Masterclass 4 workbook, place it in the `data/` folder and it will be loaded directly. If the file isn't found, this notebook generates a realistic synthetic dataset with the same structure so the whole pipeline still runs end-to-end."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import os\n",
+    "\n",
+    "DATA_PATH = \"data/supermarket_sales.csv\"\n",
+    "\n",
+    "if os.path.exists(DATA_PATH):\n",
+    "    df = pd.read_csv(DATA_PATH)\n",
+    "    print(\"Loaded official dataset:\", df.shape)\n",
+    "else:\n",
+    "    print(\"Official dataset not found \u2014 generating a synthetic sample dataset instead.\")\n",
+    "\n",
+    "    n = 1000\n",
+    "    branches = [\"A\", \"B\", \"C\"]\n",
+    "    cities = {\"A\": \"Yangon\", \"B\": \"Mandalay\", \"C\": \"Naypyitaw\"}\n",
+    "    product_lines = [\n",
+    "        \"Health and beauty\", \"Electronic accessories\", \"Home and lifestyle\",\n",
+    "        \"Sports and travel\", \"Food and beverages\", \"Fashion accessories\"\n",
+    "    ]\n",
+    "    payments = [\"Cash\", \"Credit card\", \"Ewallet\"]\n",
+    "\n",
+    "    branch_choice = np.random.choice(branches, n)\n",
+    "    unit_price = np.round(np.random.uniform(10, 100, n), 2)\n",
+    "    quantity = np.random.randint(1, 11, n)\n",
+    "    tax = np.round(unit_price * quantity * 0.05, 4)\n",
+    "    total = np.round(unit_price * quantity + tax, 4)\n",
+    "    dates = pd.date_range(\"2025-01-01\", \"2025-03-31\", periods=n)\n",
+    "\n",
+    "    df = pd.DataFrame({\n",
+    "        \"Invoice ID\": [f\"{np.random.randint(100,999)}-{np.random.randint(10,99)}-{np.random.randint(1000,9999)}\" for _ in range(n)],\n",
+    "        \"Branch\": branch_choice,\n",
+    "        \"City\": [cities[b] for b in branch_choice],\n",
+    "        \"Customer type\": np.random.choice([\"Member\", \"Normal\"], n),\n",
+    "        \"Gender\": np.random.choice([\"Male\", \"Female\"], n),\n",
+    "        \"Product line\": np.random.choice(product_lines, n),\n",
+    "        \"Unit price\": unit_price,\n",
+    "        \"Quantity\": quantity,\n",
+    "        \"Tax 5%\": tax,\n",
+    "        \"Total\": total,\n",
+    "        \"Date\": np.random.choice(dates, n),\n",
+    "        \"Time\": [f\"{np.random.randint(10,21):02d}:{np.random.randint(0,60):02d}\" for _ in range(n)],\n",
+    "        \"Payment\": np.random.choice(payments, n),\n",
+    "        \"cogs\": np.round(unit_price * quantity, 4),\n",
+    "        \"gross margin percentage\": 4.761904762,\n",
+    "        \"gross income\": tax,\n",
+    "        \"Rating\": np.round(np.random.uniform(4, 10, n), 1),\n",
+    "    })\n",
+    "    os.makedirs(\"data\", exist_ok=True)\n",
+    "    df.to_csv(DATA_PATH, index=False)\n",
+    "    print(\"Synthetic dataset saved to\", DATA_PATH, \"| shape:\", df.shape)\n",
+    "\n",
+    "df.head()\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 3. Initial Data Overview"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "print(\"Shape:\", df.shape)\n",
+    "df.info()\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "df.describe(include=\"all\").T\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 4. Data Cleaning & Preparation\n",
+    "Check for missing values, duplicate records, and fix data types."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "print(\"Missing values per column:\\n\", df.isnull().sum())\n",
+    "print(\"\\nDuplicate rows:\", df.duplicated().sum())\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "df = df.drop_duplicates().copy()\n",
+    "df[\"Date\"] = pd.to_datetime(df[\"Date\"])\n",
+    "df[\"Month\"] = df[\"Date\"].dt.month_name()\n",
+    "df[\"Weekday\"] = df[\"Date\"].dt.day_name()\n",
+    "df[\"Hour\"] = df[\"Time\"].apply(lambda t: int(str(t).split(\":\")[0]))\n",
+    "df.head()\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 5. Exploratory Data Analysis (EDA)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### 5.1 Total Sales by Branch"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "branch_sales = df.groupby(\"Branch\")[\"Total\"].sum().sort_values(ascending=False)\n",
+    "branch_sales.plot(kind=\"bar\", color=[\"#4C72B0\", \"#55A868\", \"#C44E52\"])\n",
+    "plt.title(\"Total Sales by Branch\")\n",
+    "plt.ylabel(\"Total Sales\")\n",
+    "plt.xlabel(\"Branch\")\n",
+    "plt.tight_layout()\n",
+    "plt.show()\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### 5.2 Revenue by Product Line"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "product_sales = df.groupby(\"Product line\")[\"Total\"].sum().sort_values()\n",
+    "product_sales.plot(kind=\"barh\", color=\"#8172B2\")\n",
+    "plt.title(\"Revenue by Product Line\")\n",
+    "plt.xlabel(\"Total Sales\")\n",
+    "plt.tight_layout()\n",
+    "plt.show()\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### 5.3 Payment Method Preference"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "payment_counts = df[\"Payment\"].value_counts()\n",
+    "payment_counts.plot(kind=\"pie\", autopct=\"%1.1f%%\", startangle=90)\n",
+    "plt.title(\"Payment Method Distribution\")\n",
+    "plt.ylabel(\"\")\n",
+    "plt.tight_layout()\n",
+    "plt.show()\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### 5.4 Sales Trend Over Time"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "daily_sales = df.groupby(df[\"Date\"].dt.date)[\"Total\"].sum()\n",
+    "daily_sales.plot(kind=\"line\", color=\"#DD8452\")\n",
+    "plt.title(\"Daily Sales Trend\")\n",
+    "plt.ylabel(\"Total Sales\")\n",
+    "plt.xlabel(\"Date\")\n",
+    "plt.xticks(rotation=45)\n",
+    "plt.tight_layout()\n",
+    "plt.show()\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### 5.5 Customer Rating Distribution by Gender"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "sns.boxplot(data=df, x=\"Gender\", y=\"Rating\", palette=\"Set2\")\n",
+    "plt.title(\"Customer Rating by Gender\")\n",
+    "plt.tight_layout()\n",
+    "plt.show()\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### 5.6 Correlation Heatmap"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "numeric_cols = [\"Unit price\", \"Quantity\", \"Tax 5%\", \"Total\", \"cogs\", \"gross income\", \"Rating\"]\n",
+    "plt.figure(figsize=(7, 5))\n",
+    "sns.heatmap(df[numeric_cols].corr(), annot=True, cmap=\"coolwarm\", fmt=\".2f\")\n",
+    "plt.title(\"Correlation Between Numeric Features\")\n",
+    "plt.tight_layout()\n",
+    "plt.show()\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 6. AI Component \u2014 Predicting Customer Rating\n",
+    "We train a **Random Forest Regressor** to predict a customer's satisfaction `Rating` from purchase and demographic features. This demonstrates how AI can help a supermarket proactively flag transactions likely to result in a poor customer experience."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "model_df = df.copy()\n",
+    "cat_cols = [\"Branch\", \"City\", \"Customer type\", \"Gender\", \"Product line\", \"Payment\"]\n",
+    "encoders = {}\n",
+    "for c in cat_cols:\n",
+    "    le = LabelEncoder()\n",
+    "    model_df[c] = le.fit_transform(model_df[c])\n",
+    "    encoders[c] = le\n",
+    "\n",
+    "features = cat_cols + [\"Unit price\", \"Quantity\", \"Total\", \"Hour\"]\n",
+    "X = model_df[features]\n",
+    "y = model_df[\"Rating\"]\n",
+    "\n",
+    "X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)\n",
+    "\n",
+    "rf = RandomForestRegressor(n_estimators=300, random_state=42)\n",
+    "rf.fit(X_train, y_train)\n",
+    "preds = rf.predict(X_test)\n",
+    "\n",
+    "mae = mean_absolute_error(y_test, preds)\n",
+    "rmse = np.sqrt(mean_squared_error(y_test, preds))\n",
+    "r2 = r2_score(y_test, preds)\n",
+    "\n",
+    "print(f\"MAE:  {mae:.3f}\")\n",
+    "print(f\"RMSE: {rmse:.3f}\")\n",
+    "print(f\"R2:   {r2:.3f}\")\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### 6.1 Feature Importance"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "importance = pd.Series(rf.feature_importances_, index=features).sort_values()\n",
+    "importance.plot(kind=\"barh\", color=\"#4C72B0\")\n",
+    "plt.title(\"Feature Importance for Predicting Rating\")\n",
+    "plt.tight_layout()\n",
+    "plt.show()\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 7. Key Business Insights\n",
+    "\n",
+    "1. **Branch performance** \u2014 sales are compared across the three branches to identify the top and weakest performing locations.\n",
+    "2. **Product line revenue** \u2014 highlights which product categories drive the most revenue and are worth greater inventory investment.\n",
+    "3. **Payment preference** \u2014 shows which payment method customers favor, useful for checkout/POS planning.\n",
+    "4. **Sales trend** \u2014 daily trend reveals peak sales days that can guide staffing and promotions.\n",
+    "5. **AI prediction** \u2014 the Random Forest model estimates customer Rating from transaction features; feature importance shows which factors most influence customer satisfaction, giving the business a data-driven lever to improve experience.\n",
+    "\n",
+    "*(Replace the bullet points above with the specific numeric findings once you run this notebook on the official dataset \u2014 e.g., \"Branch A generated the highest revenue at $X\" etc.)*"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 8. Conclusion"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "This project walked through the full data analytics pipeline \u2014 data loading, cleaning, exploratory analysis, visualization, and an AI/ML model \u2014 on supermarket sales data. The insights generated can help supermarket management make informed decisions on inventory, staffing, and customer experience.\n",
+    "\n",
+    "**Tools used:** Python, Pandas, NumPy, Matplotlib, Seaborn, Scikit-learn"
+   ]
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "name": "python",
+   "version": "3.11"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 5
+}
